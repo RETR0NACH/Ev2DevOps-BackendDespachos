@@ -1,0 +1,45 @@
+name: CI/CD Backend Despachos AWS
+
+on:
+  push:
+    branches: ["deploy"]
+
+jobs:
+  build-push-deploy-despachos:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout código
+        uses: actions/checkout@v3
+
+      - name: Configurar credenciales AWS
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      - name: Login en Amazon ECR
+        uses: aws-actions/amazon-ecr-login@v1
+
+      - name: Build imagen Despachos y push a ECR
+        run: |
+          cd Springboot-API-REST-DESPACHO
+          docker build -t tienda-backend-despachos .
+          docker tag tienda-backend-despachos:latest ${{ secrets.ECR_REPO_URL_DESPACHOS }}:latest
+          docker push ${{ secrets.ECR_REPO_URL_DESPACHOS }}:latest
+
+      - name: Desplegar Despachos vía SSM en EC2 App
+        run: |
+          aws ssm send-command \
+            --instance-ids ${{ secrets.EC2_APP_INSTANCE_ID }} \
+            --document-name "AWS-RunShellScript" \
+            --comment "Desplegar Backend Despachos desde ECR" \
+            --parameters '{"commands":[
+              "set -e",
+              "aws ecr get-login-password --region ${{ secrets.AWS_REGION }} | docker login --username AWS --password-stdin ${{ secrets.ECR_REGISTRY }}",
+              "docker pull ${{ secrets.ECR_REPO_URL_DESPACHOS }}:latest",
+              "docker stop backend-despachos || true",
+              "docker rm -f backend-despachos || true",
+              "docker run -d --name backend-despachos -p 8081:8081 --restart unless-stopped -e SPRING_DATASOURCE_URL=\"jdbc:mysql://${{ secrets.DATA_PRIVATE_IP }}:3306/tienda_db?allowPublicKeyRetrieval=true&useSSL=false\" -e DB_USERNAME=\"${{ secrets.DB_USER }}\" -e DB_PASSWORD=\"${{ secrets.DB_PASSWORD }}\" ${{ secrets.ECR_REPO_URL_DESPACHOS }}:latest"
+            ]}'
