@@ -2,7 +2,7 @@ name: CI/CD Backend Despachos AWS
 
 on:
   push:
-    branches: ["deploy"]
+    branches: ["main"]
 
 jobs:
   build-push-deploy-despachos:
